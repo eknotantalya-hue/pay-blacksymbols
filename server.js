@@ -6,6 +6,10 @@ const PORT = process.env.PORT || 3000;
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
+app.get('/', (req, res) => {
+  res.status(200).send('PAY SERVER ROOT WORKS');
+});
+
 app.get('/health', (req, res) => {
   res.status(200).json({
     ok: true,
