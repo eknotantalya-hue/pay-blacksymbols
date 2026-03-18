@@ -1,4 +1,7 @@
 const express = require('express');
+const dotenv = require('dotenv');
+
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -69,6 +72,7 @@ app.all('/param/init', async (req, res) => {
         <Order_ID>r|${xmlEscape(orderId)}</Order_ID>
         <TransactionId>r|${xmlEscape(orderId)}</TransactionId>
         <Callback_URL>r|${xmlEscape(callbackUrl)}</Callback_URL>
+        <Customer_Name>r|${xmlEscape(customerName)}</Customer_Name>
         <installment>r|1</installment>
         <MaxInstallment>r|1</MaxInstallment>
       </d>
@@ -127,6 +131,7 @@ app.all('/param/init', async (req, res) => {
     `);
   } catch (err) {
     console.error(err);
+
     lastParamResponse = {
       error: String(err),
       stack: String(err.stack || ''),
