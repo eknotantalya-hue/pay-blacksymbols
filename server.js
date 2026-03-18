@@ -80,7 +80,7 @@ app.all('/param/init', async (req, res) => {
       method: 'POST',
       headers: {
         'Content-Type': 'text/xml; charset=utf-8',
-        SOAPAction: soapAction
+        'SOAPAction': soapAction
       },
       body: xml
     });
@@ -98,6 +98,7 @@ app.all('/param/init', async (req, res) => {
       resultDescription,
       paymentUrl,
       raw: responseText,
+      sentXml: xml,
       time: new Date().toISOString()
     };
 
@@ -117,6 +118,7 @@ app.all('/param/init', async (req, res) => {
           <p><b>HTTP Status:</b> ${escapeHtml(String(response.status))}</p>
           <p><b>ResultCode:</b> ${escapeHtml(resultCode || '')}</p>
           <p><b>ResultDescription:</b> ${escapeHtml(resultDescription || '')}</p>
+          <p><b>Payment URL:</b> ${escapeHtml(paymentUrl || '')}</p>
           <h3>Raw Response</h3>
           <pre style="white-space:pre-wrap;background:#000;padding:16px;border-radius:8px;">${escapeHtml(responseText)}</pre>
           <p><a style="color:#ffcc00;" href="/debug/last" target="_blank">Open debug/last</a></p>
@@ -127,6 +129,7 @@ app.all('/param/init', async (req, res) => {
     console.error(err);
     lastParamResponse = {
       error: String(err),
+      stack: String(err.stack || ''),
       time: new Date().toISOString()
     };
 
@@ -175,7 +178,7 @@ function toParamAmount(value) {
 }
 
 function normalizePhone(value) {
-  const digits = String(value).replace(/\D/g, '');
+  const digits = String(value).replace(/\\D/g, '');
   if (digits.length >= 10) return digits.slice(-10);
   return digits;
 }
