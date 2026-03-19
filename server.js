@@ -50,11 +50,13 @@ app.all('/param/init', async (req, res) => {
 
     const soapAction = 'https://turkpos.com.tr/TP_Modal_Payment';
 
-    const amount = toParamAmount(body.Islem_Tutar || '0');
-    const orderId = String(body.Siparis_ID || 'NO_ORDER');
-    const phone = normalizePhone(body.KK_Sahibi_GSM || '');
-    const customerName = String(body.KK_Sahibi || 'Customer');
-    const callbackUrl = ${process.env.PUBLIC_BASE_URL}/param/callback;
+ const amount = toParamAmount(body.Islem_Tutar || '0');
+const orderId = String(body.Siparis_ID || 'NO_ORDER');
+const transactionId = ${orderId}-1;
+const phone = normalizePhone(body.KK_Sahibi_GSM || '');
+const customerName = String(body.KK_Sahibi || 'Customer');
+const callbackUrl = ${process.env.PUBLIC_BASE_URL}/param/callback;
+const successUrl = String(body.Basarili_URL || '');
 
     const xml = `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -70,7 +72,7 @@ app.all('/param/init', async (req, res) => {
         <GSM>r|${xmlEscape(phone)}</GSM>
         <Amount>r|${xmlEscape(amount)}</Amount>
         <Order_ID>r|${xmlEscape(orderId)}</Order_ID>
-        <TransactionId>r|${xmlEscape(orderId)}</TransactionId>
+       <TransactionId>r|${xmlEscape(transactionId)}</TransactionId>
         <Callback_URL>r|${xmlEscape(callbackUrl)}</Callback_URL>
         <Customer_Name>r|${xmlEscape(customerName)}</Customer_Name>
         <installment>r|1</installment>
@@ -110,8 +112,21 @@ app.all('/param/init', async (req, res) => {
     console.log(JSON.stringify(lastParamResponse, null, 2));
 
     if (response.ok && Number(resultCode) > 0 && paymentUrl) {
-      return res.redirect(paymentUrl);
-    }
+  return res.send(`
+    <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Redirecting to Param</title>
+      </head>
+      <body onload="document.forms[0].submit()" style="font-family:Arial;padding:24px;">
+        <p>Redirecting to payment page...</p>
+        <form method="POST" action="${escapeHtml(paymentUrl)}">
+          <input type="hidden" name="return_url" value="${escapeHtml(successUrl)}">
+        </form>
+      </body>
+    </html>
+  `);
+}
 
     return res.status(500).send(`
       <html>
@@ -155,12 +170,41 @@ app.all('/param/callback', (req, res) => {
   console.log('=== /param/callback called ===');
   console.log(JSON.stringify({ body: req.body, query: req.query }, null, 2));
 
-  res.status(200).send(`
+  const data = req.method === 'POST' ? req.body : req.query;
+
+  const sonuc = String(data.TURKPOS_RETVAL_Sonuc || '');
+  const siparisId = String(data.TURKPOS_RETVAL_Siparis_ID || '');
+  const dekontId = String(data.TURKPOS_RETVAL_Dekont_ID || '');
+  const islemId = String(data.TURKPOS_RETVAL_Islem_ID || '');
+
+  lastParamResponse = {
+    callback: true,
+    method: req.method,
+    data,
+    time: new Date().toISOString()
+  };
+
+  if (sonuc === '1') {
+    return res.send(`
+      <html>
+        <head><meta charset="UTF-8"><title>Payment Success</title></head>
+        <body style="font-family:Arial;padding:24px;background:#111;color:#fff;">
+          <h1 style="color:#66ff99;">PAYMENT SUCCESS</h1>
+          <p><b>Siparis_ID:</b> ${escapeHtml(siparisId)}</p>
+          <p><b>Dekont_ID:</b> ${escapeHtml(dekontId)}</p>
+          <p><b>Islem_ID:</b> ${escapeHtml(islemId)}</p>
+          <pre style="white-space:pre-wrap;background:#000;padding:16px;border-radius:8px;">${escapeHtml(JSON.stringify(data, null, 2))}</pre>
+        </body>
+      </html>
+    `);
+  }
+
+  return res.status(400).send(`
     <html>
-      <head><meta charset="UTF-8"><title>Callback OK</title></head>
-      <body style="font-family:Arial;padding:24px;">
-        <h1>PARAM CALLBACK RECEIVED</h1>
-        <pre>${escapeHtml(JSON.stringify({ body: req.body, query: req.query }, null, 2))}</pre>
+      <head><meta charset="UTF-8"><title>Payment Failed</title></head>
+      <body style="font-family:Arial;padding:24px;background:#111;color:#fff;">
+        <h1 style="color:#ff6666;">PAYMENT FAILED</h1>
+        <pre style="white-space:pre-wrap;background:#000;padding:16px;border-radius:8px;">${escapeHtml(JSON.stringify(data, null, 2))}</pre>
       </body>
     </html>
   `);
