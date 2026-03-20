@@ -24,10 +24,25 @@ app.get('/health', (req, res) => {
   res.status(200).json({ ok: true, service: 'pay-blacksymbols', message: 'Server is running' });
 });
 
+// ВОЗВРАЩЕННАЯ СТРАНИЦА ДИАГНОСТИКИ
+app.get('/debug/last', (req, res) => {
+  res.status(200).json({
+    ok: true,
+    lastRequest,
+    lastParamResponse
+  });
+});
+
 app.all('/param/init', async (req, res) => {
   try {
     const body = req.body || {};
     
+    lastRequest = {
+      method: req.method,
+      body: body,
+      time: new Date().toISOString()
+    };
+
     // Определяем URL шлюза (боевой или тестовый)
     const endpoint = process.env.PARAM_MODE === 'prod'
         ? 'https://posws.param.com.tr/api/parampos/modalpayment'
@@ -53,7 +68,7 @@ app.all('/param/init', async (req, res) => {
       successUrl,
       failUrl,
       notificationUrl,
-      rawBody: body, // Сохраняем все данные (включая adres, buyer_type) для Paraşüt
+      rawBody: body, 
       createdAt: new Date().toISOString()
     });
 
@@ -84,14 +99,41 @@ app.all('/param/init', async (req, res) => {
     try { responseJson = JSON.parse(responseText); } catch (e) {}
 
     const resultCode = responseJson?.ResultCode ?? '';
+    const resultDescription = responseJson?.ResultDescription ?? '';
     const paymentUrl = responseJson?.URL ?? '';
+
+    // СОХРАНЯЕМ ОТВЕТ ДЛЯ DEBUG СТРАНИЦЫ
+    lastParamResponse = {
+      endpoint,
+      status: response.status,
+      payload,
+      resultCode,
+      resultDescription,
+      paymentUrl,
+      raw: responseText,
+      time: new Date().toISOString()
+    };
 
     // Если банк дал добро — перекидываем клиента на страницу ввода карты Param
     if (response.ok && Number(resultCode) > 0 && paymentUrl) {
       return res.redirect(paymentUrl);
     }
 
-    return res.status(500).send(`Ошибка Param: ${resultCode}`);
+    // ВОЗВРАЩЕННЫЙ ЧЕРНЫЙ ЭКРАН С ОШИБКОЙ
+    return res.status(500).send(`
+      <html>
+        <head><meta charset="UTF-8"><title>Param Error</title></head>
+        <body style="font-family:Arial;padding:24px;background:#111;color:#fff;">
+          <h1 style="color:#ffcc00;">PARAM ERROR</h1>
+          <p><b>HTTP Status:</b> ${escapeHtml(String(response.status))}</p>
+          <p><b>ResultCode:</b> ${escapeHtml(String(resultCode))}</p>
+          <p><b>ResultDescription:</b> ${escapeHtml(String(resultDescription))}</p>
+          <h3>Raw Response (Сырой ответ банка):</h3>
+          <pre style="white-space:pre-wrap;background:#000;padding:16px;border-radius:8px;">${escapeHtml(responseText)}</pre>
+          <p><a style="color:#ffcc00;" href="/debug/last" target="_blank">Открыть /debug/last</a></p>
+        </body>
+      </html>
+    `);
   } catch (err) {
     console.error('INIT ERROR:', err);
     return res.status(500).send('Server Error');
@@ -116,7 +158,7 @@ app.all('/param/callback', async (req, res) => {
     if (sonuc === '1' && Number(dekontId) > 0) {
       console.log(`Заказ ${siparisId} успешно оплачен. Dekont: ${dekontId}`);
 
-      // 1. Отправляем скрытый сигнал в Тильду (Зеленая пометка в CRM)
+      // 1. Отправляем скрытый сигнал в Тильду
       if (notificationUrl) {
         try {
           await fetch(notificationUrl, {
@@ -128,25 +170,24 @@ app.all('/param/callback', async (req, res) => {
               TURKPOS_RETVAL_Dekont_ID: dekontId
             }).toString()
           });
-          console.log('Сигнал в Тильду отправлен успешно.');
         } catch (webhookErr) {
           console.error('Ошибка отправки сигнала в Тильду:', webhookErr);
         }
       }
 
-      // 2. Запускаем создание фатуры в Paraşüt (Пока в режиме подготовки)
+      // 2. Запускаем создание фатуры в Paraşüt
       if (orderMeta.rawBody) {
         createParasutInvoice(orderMeta.rawBody, dekontId);
       }
 
-      // 3. Перенаправляем клиента на страницу успеха (blacksymbols.com/payment_success)
+      // 3. Перенаправляем клиента на страницу успеха
       if (successUrl) {
         return res.redirect(successUrl);
       }
       return res.send('Оплата прошла успешно!');
     }
 
-    // БЛОК 2: ОШИБКА ОПЛАТЫ (нехватка средств, отмена)
+    // БЛОК 2: ОШИБКА ОПЛАТЫ
     if (failUrl) {
       return res.redirect(failUrl);
     }
@@ -158,35 +199,18 @@ app.all('/param/callback', async (req, res) => {
   }
 });
 
-// === ФУНКЦИЯ PARAŞÜT (Скелет для будущего автовыставления) ===
 async function createParasutInvoice(tildaData, dekontId) {
   try {
-    console.log('--- ПОДГОТОВКА ДАННЫХ ДЛЯ PARAŞÜT ---');
-    
-    // Вытаскиваем все данные, которые вы добавили в "Дополнительные поля"
     const buyerType = tildaData.buyer_type || 'Bireysel';
     const name = tildaData.name || tildaData.KK_Sahibi || 'Müşteri';
-    const email = tildaData.email || tildaData.Data1 || '';
-    const phone = tildaData.phone || tildaData.KK_Sahibi_GSM || '';
-    const address = tildaData.adres || 'Adres belirtilmedi';
     const il = tildaData.il || '';
-    const vkn = tildaData.company_vkn || '11111111111'; // По умолчанию для физлиц
+    const address = tildaData.adres || 'Adres belirtilmedi';
     const amount = tildaData.Islem_Tutar || '0';
 
-    console.log(`Покупатель: ${name} (${buyerType})`);
-    console.log(`Адрес: ${il}, ${address}`);
-    console.log(`Сумма: ${amount} TRY. Квитанция: ${dekontId}`);
-    
-    /* TODO (После отпуска): 
-      1. Написать функцию получения OAuth-токена Paraşüt.
-      2. Сделать POST-запрос на /contacts для создания клиента.
-      3. Сделать POST-запрос на /sales_invoices для создания E-Arşiv.
-      4. Сделать POST-запрос на /e_archives/{id}/emails для отправки клиенту.
-    */
-    
-    console.log('Данные для фатуры успешно собраны. Ожидается подключение API ключей Paraşüt.');
+    console.log(`--- ДАННЫЕ PARAŞÜT ---`);
+    console.log(`Покупатель: ${name} (${buyerType}). Сумма: ${amount} TRY.`);
   } catch (error) {
-    console.error('Ошибка подготовки данных для Paraşüt:', error);
+    console.error('Ошибка Paraşüt:', error);
   }
 }
 
@@ -194,7 +218,6 @@ app.listen(PORT, () => {
   console.log('Server started on port ' + PORT);
 });
 
-// --- Вспомогательные функции ---
 function toParamAmount(value) {
   const num = Number(String(value).replace(',', '.').trim() || '0');
   return num.toFixed(2).replace('.', ',');
@@ -204,4 +227,12 @@ function normalizePhone(value) {
   const digits = String(value).replace(/\D/g, '');
   return digits.length >= 10 ? digits.slice(-10) : digits;
 }
-        
+
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
