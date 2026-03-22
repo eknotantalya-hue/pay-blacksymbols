@@ -50,18 +50,18 @@ app.all('/param/init', async (req, res) => {
 
     const orderId = String(body.Siparis_ID || 'NO_ORDER');
     // Уникальный ID транзакции (решает проблему дублей)
-    const transactionId = `${orderId}-${Date.now()}`;
+    const transactionId = ${orderId}-${Date.now()};
 
     const amount = toParamAmount(body.Islem_Tutar || '0');
     const phone = normalizePhone(body.KK_Sahibi_GSM || body.phone || '');
     
     // URL для возврата от банка на наш сервер
-    const callbackUrl = `${String(process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '')}/param/callback`;
+    const callbackUrl = ${String(process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '')}/param/callback;
 
     // Ссылки, которые присылает Тильда
     const successUrl = String(body.Basarili_URL || '');
     const failUrl = String(body.Basarisiz_URL || '');
-    const notificationUrl = String(body.Notification_URL || ''); // Тот самый Webhook Тильды
+    const notificationUrl = String(body.Notification_URL || '');
 
     // Сохраняем в память сервера, чтобы использовать после оплаты
     orderStore.set(orderId, {
@@ -86,7 +86,7 @@ app.all('/param/init', async (req, res) => {
       MaxInstallment: 1
     };
 
-    console.log(`Инициализация платежа для заказа: ${orderId}`);
+    console.log(Инициализация платежа для заказа: ${orderId});
 
     const response = await fetch(endpoint, {
       method: 'POST',
@@ -148,6 +148,28 @@ app.all('/param/callback', async (req, res) => {
     const siparisId = String(data.TURKPOS_RETVAL_Siparis_ID || '');
     const dekontId = String(data.TURKPOS_RETVAL_Dekont_ID || '');
     const islemId = String(data.TURKPOS_RETVAL_Islem_ID || '');
+    
+    // ДАННЫЕ ДЛЯ ПРОВЕРКИ ХЭША (БЕЗОПАСНОСТЬ)
+    const tahsilatTutari = String(data.TURKPOS_RETVAL_Tahsilat_Tutari || '');
+    const returnedHash = String(data.TURKPOS_RETVAL_Hash || '');
+
+    // Вычисляем локальный хэш
+    const localHash = createParamCallbackHash({
+      code: String(process.env.PARAM_CLIENT_CODE || ''),
+      guid: String(process.env.PARAM_GUID || ''),
+      dekontId,
+      tahsilatTutari,
+      siparisId,
+      islemId
+    });
+
+    const hashValid = (returnedHash !== '' && returnedHash === localHash);
+
+    // Если хэш не совпал - прерываем операцию (защита от взлома)
+    if (!hashValid) {
+      console.error(КРИТИЧЕСКАЯ ОШИБКА: Неверный хэш для заказа ${siparisId}. Попытка подделки!);
+      return res.status(400).send('Invalid Security Hash');
+    }
 
     const orderMeta = orderStore.get(siparisId) || {};
     const successUrl = orderMeta.successUrl || '';
@@ -156,7 +178,7 @@ app.all('/param/callback', async (req, res) => {
 
     // БЛОК 1: УСПЕШНАЯ ОПЛАТА
     if (sonuc === '1' && Number(dekontId) > 0) {
-      console.log(`Заказ ${siparisId} успешно оплачен. Dekont: ${dekontId}`);
+      console.log(Заказ ${siparisId} успешно оплачен. Dekont: ${dekontId});
 
       // 1. Отправляем скрытый сигнал в Тильду
       if (notificationUrl) {
@@ -207,8 +229,8 @@ async function createParasutInvoice(tildaData, dekontId) {
     const address = tildaData.adres || 'Adres belirtilmedi';
     const amount = tildaData.Islem_Tutar || '0';
 
-    console.log(`--- ДАННЫЕ PARAŞÜT ---`);
-    console.log(`Покупатель: ${name} (${buyerType}). Сумма: ${amount} TRY.`);
+    console.log(--- ДАННЫЕ PARAŞÜT ---);
+    console.log(Покупатель: ${name} (${buyerType}). Сумма: ${amount} TRY.);
   } catch (error) {
     console.error('Ошибка Paraşüt:', error);
   }
@@ -217,6 +239,13 @@ async function createParasutInvoice(tildaData, dekontId) {
 app.listen(PORT, () => {
   console.log('Server started on port ' + PORT);
 });
+
+// ФУНКЦИЯ ПРОВЕРКИ ПОДПИСИ (БЕЗОПАСНОСТЬ)
+function createParamCallbackHash({ code, guid, dekontId, tahsilatTutari, siparisId, islemId }) {
+  const raw = ${code}${guid}${dekontId}${tahsilatTutari}${siparisId}${islemId};
+  const sha1 = crypto.createHash('sha1').update(raw, 'utf8').digest();
+  return sha1.toString('base64');
+}
 
 function toParamAmount(value) {
   const num = Number(String(value).replace(',', '.').trim() || '0');
