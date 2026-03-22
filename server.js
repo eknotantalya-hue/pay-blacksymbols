@@ -180,7 +180,7 @@ app.all('/param/callback', async (req, res) => {
     if (sonuc === '1' && Number(dekontId) > 0) {
       console.log(Заказ ${siparisId} успешно оплачен. Dekont: ${dekontId});
 
-      // 1. Отправляем скрытый сигнал в Тильду
+      // 1. Отправляем скрытый сигнал в Тильду (Исправлены имена переменных!)
       if (notificationUrl) {
         try {
           await fetch(notificationUrl, {
@@ -188,10 +188,11 @@ app.all('/param/callback', async (req, res) => {
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: new URLSearchParams({
               TURKPOS_RETVAL_Sonuc: '1',
-              TURKPOS_RETVAL_Siparis_ID: siparisId,
-              TURKPOS_RETVAL_Dekont_ID: dekontId
+              Siparis_ID: siparisId,       // Тильда ищет именно это имя
+              Islem_Tutar: tahsilatTutari  // Отправляем сумму для сверки
             }).toString()
           });
+          console.log('Сигнал в Тильду отправлен.');
         } catch (webhookErr) {
           console.error('Ошибка отправки сигнала в Тильду:', webhookErr);
         }
@@ -202,9 +203,12 @@ app.all('/param/callback', async (req, res) => {
         createParasutInvoice(orderMeta.rawBody, dekontId);
       }
 
-      // 3. Перенаправляем клиента на страницу успеха
+      // 3. Перенаправляем клиента на страницу успеха с передачей данных
       if (successUrl) {
-        return res.redirect(successUrl);
+        const finalUrl = new URL(successUrl);
+        finalUrl.searchParams.append('TURKPOS_RETVAL_Siparis_ID', siparisId);
+        finalUrl.searchParams.append('TURKPOS_RETVAL_Tahsilat_Tutari', tahsilatTutari);
+        return res.redirect(finalUrl.toString());
       }
       return res.send('Оплата прошла успешно!');
     }
