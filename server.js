@@ -180,20 +180,29 @@ app.all('/param/callback', async (req, res) => {
     if (sonuc === '1' && Number(dekontId) > 0) {
       console.log(Заказ ${siparisId} успешно оплачен. Dekont: ${dekontId});
 
-      // 1. Отправляем скрытый сигнал в Тильду (Добавлен Dekont_ID!)
+      // Берем оригинальную сумму Тильды из памяти, чтобы пройти её строгую проверку
+      const originalAmount = (orderMeta.rawBody && orderMeta.rawBody.Islem_Tutar) 
+                             ? orderMeta.rawBody.Islem_Tutar 
+                             : tahsilatTutari.replace(',', '.');
+
+      // 1. Отправляем скрытый сигнал в Тильду
       if (notificationUrl) {
         try {
-          await fetch(notificationUrl, {
+          const webhookParams = new URLSearchParams({
+            TURKPOS_RETVAL_Sonuc: '1',
+            Siparis_ID: siparisId,
+            Islem_Tutar: originalAmount, // Отправляем сумму в формате Тильды!
+            TURKPOS_RETVAL_Dekont_ID: dekontId
+          }).toString();
+
+          const webhookRes = await fetch(notificationUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({
-              TURKPOS_RETVAL_Sonuc: '1',
-              Siparis_ID: siparisId,       
-              Islem_Tutar: tahsilatTutari, 
-              TURKPOS_RETVAL_Dekont_ID: dekontId  // ТИЛЬДА ЖДАЛА ИМЕННО ЭТУ СТРОЧКУ!
-            }).toString()
+            body: webhookParams
           });
-          console.log('Сигнал в Тильду отправлен.');
+          
+          console.log(Статус ответа Тильды: ${webhookRes.status});
+          console.log(Текст ответа Тильды: ${await webhookRes.text()});
         } catch (webhookErr) {
           console.error('Ошибка отправки сигнала в Тильду:', webhookErr);
         }
@@ -213,7 +222,7 @@ app.all('/param/callback', async (req, res) => {
       }
       return res.send('Оплата прошла успешно!');
     }
-
+    
     // БЛОК 2: ОШИБКА ОПЛАТЫ
     if (failUrl) {
       return res.redirect(failUrl);
