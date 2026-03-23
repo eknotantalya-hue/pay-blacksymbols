@@ -13,7 +13,7 @@ app.use(express.json());
 let lastRequest = null;
 let lastParamResponse = null;
 
-// Храним данные заказа в памяти для коллбэка
+// Храним данные заказа до прихода callback от Param
 const orderStore = new Map();
 
 app.get('/', (req, res) => {
@@ -21,10 +21,13 @@ app.get('/', (req, res) => {
 });
 
 app.get('/health', (req, res) => {
-  res.status(200).json({ ok: true, service: 'pay-blacksymbols', message: 'Server is running' });
+  res.status(200).json({
+    ok: true,
+    service: 'pay-blacksymbols',
+    message: 'Server is running'
+  });
 });
 
-// ВОЗВРАЩЕННАЯ СТРАНИЦА ДИАГНОСТИКИ
 app.get('/debug/last', (req, res) => {
   res.status(200).json({
     ok: true,
@@ -36,39 +39,39 @@ app.get('/debug/last', (req, res) => {
 app.all('/param/init', async (req, res) => {
   try {
     const body = req.body || {};
-    
+
     lastRequest = {
       method: req.method,
-      body: body,
+      body,
+      query: req.query || {},
       time: new Date().toISOString()
     };
 
-    // Определяем URL шлюза (боевой или тестовый)
-    const endpoint = process.env.PARAM_MODE === 'prod'
+    const endpoint =
+      process.env.PARAM_MODE === 'prod'
         ? 'https://posws.param.com.tr/api/parampos/modalpayment'
         : 'https://test-dmz.param.com.tr/api/parampos/modalpayment';
 
     const orderId = String(body.Siparis_ID || 'NO_ORDER');
-    // Уникальный ID транзакции (решает проблему дублей)
-    const transactionId = '${orderId}-${Date.now()}';
+    const transactionId = ${orderId}-${Date.now()};
 
     const amount = toParamAmount(body.Islem_Tutar || '0');
     const phone = normalizePhone(body.KK_Sahibi_GSM || body.phone || '');
-    
-    // URL для возврата от банка на наш сервер
-    const callbackUrl = '${String(process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '')}/param/callback';
+    const customerName = String(body.KK_Sahibi || body.name || 'Customer');
 
-    // Ссылки, которые присылает Тильда
+    const publicBaseUrl = String(process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
+    const callbackUrl = ${publicBaseUrl}/param/callback;
+
     const successUrl = String(body.Basarili_URL || '');
     const failUrl = String(body.Basarisiz_URL || '');
     const notificationUrl = String(body.Notification_URL || '');
 
-    // Сохраняем в память сервера, чтобы использовать после оплаты
+    // Сохраняем заказ до callback
     orderStore.set(orderId, {
       successUrl,
       failUrl,
       notificationUrl,
-      rawBody: body, 
+      rawBody: body,
       createdAt: new Date().toISOString()
     });
 
@@ -83,27 +86,36 @@ app.all('/param/init', async (req, res) => {
       TransactionId: transactionId,
       Callback_URL: callbackUrl,
       Installment: 1,
-      MaxInstallment: 1
+      MaxInstallment: 1,
+      Customer_Name: customerName
     };
 
-    console.log('Инициализация платежа для заказа: ${orderId}');
+    console.log(Инициализация платежа для заказа: ${orderId});
+    console.log('PARAM INIT PAYLOAD:', JSON.stringify(payload, null, 2));
 
     const response = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json'
+      },
       body: JSON.stringify(payload)
     });
 
     const responseText = await response.text();
+
     let responseJson = null;
-    try { responseJson = JSON.parse(responseText); } catch (e) {}
+    try {
+      responseJson = JSON.parse(responseText);
+    } catch (e) {
+      responseJson = null;
+    }
 
     const resultCode = responseJson?.ResultCode ?? '';
     const resultDescription = responseJson?.ResultDescription ?? '';
     const paymentUrl = responseJson?.URL ?? '';
 
-    // СОХРАНЯЕМ ОТВЕТ ДЛЯ DEBUG СТРАНИЦЫ
     lastParamResponse = {
+      stage: 'init',
       endpoint,
       status: response.status,
       payload,
@@ -114,46 +126,69 @@ app.all('/param/init', async (req, res) => {
       time: new Date().toISOString()
     };
 
-    // Если банк дал добро — перекидываем клиента на страницу ввода карты Param
     if (response.ok && Number(resultCode) > 0 && paymentUrl) {
       return res.redirect(paymentUrl);
     }
 
-    // ВОЗВРАЩЕННЫЙ ЧЕРНЫЙ ЭКРАН С ОШИБКОЙ
     return res.status(500).send(`
       <html>
-        <head><meta charset="UTF-8"><title>Param Error</title></head>
+        <head>
+          <meta charset="UTF-8">
+          <title>Param Error</title>
+        </head>
         <body style="font-family:Arial;padding:24px;background:#111;color:#fff;">
           <h1 style="color:#ffcc00;">PARAM ERROR</h1>
+          <p><b>Endpoint:</b> ${escapeHtml(endpoint)}</p>
           <p><b>HTTP Status:</b> ${escapeHtml(String(response.status))}</p>
           <p><b>ResultCode:</b> ${escapeHtml(String(resultCode))}</p>
           <p><b>ResultDescription:</b> ${escapeHtml(String(resultDescription))}</p>
-          <h3>Raw Response (Сырой ответ банка):</h3>
+          <p><b>Payment URL:</b> ${escapeHtml(String(paymentUrl))}</p>
+          <h3>Raw Response</h3>
           <pre style="white-space:pre-wrap;background:#000;padding:16px;border-radius:8px;">${escapeHtml(responseText)}</pre>
-          <p><a style="color:#ffcc00;" href="/debug/last" target="_blank">Открыть /debug/last</a></p>
+          <p><a style="color:#ffcc00;" href="/debug/last" target="_blank">Open /debug/last</a></p>
         </body>
       </html>
     `);
   } catch (err) {
     console.error('INIT ERROR:', err);
-    return res.status(500).send('Server Error');
+
+    lastParamResponse = {
+      stage: 'init_error',
+      error: String(err),
+      stack: String(err.stack || ''),
+      time: new Date().toISOString()
+    };
+
+    return res.status(500).send(`
+      <html>
+        <head>
+          <meta charset="UTF-8">
+          <title>Server Error</title>
+        </head>
+        <body style="font-family:Arial;padding:24px;background:#111;color:#fff;">
+          <h1 style="color:#ffcc00;">SERVER ERROR</h1>
+          <pre style="white-space:pre-wrap;background:#000;padding:16px;border-radius:8px;">${escapeHtml(String(err.stack || err))}</pre>
+          <p><a style="color:#ffcc00;" href="/debug/last" target="_blank">Open /debug/last</a></p>
+        </body>
+      </html>
+    `);
   }
 });
 
 app.all('/param/callback', async (req, res) => {
   try {
     const data = req.method === 'POST' ? (req.body || {}) : (req.query || {});
-    
+
+    console.log('=== /param/callback called ===');
+    console.log(JSON.stringify(data, null, 2));
+
     const sonuc = String(data.TURKPOS_RETVAL_Sonuc || '');
     const siparisId = String(data.TURKPOS_RETVAL_Siparis_ID || '');
     const dekontId = String(data.TURKPOS_RETVAL_Dekont_ID || '');
     const islemId = String(data.TURKPOS_RETVAL_Islem_ID || '');
-    
-    // ДАННЫЕ ДЛЯ ПРОВЕРКИ ХЭША (БЕЗОПАСНОСТЬ)
     const tahsilatTutari = String(data.TURKPOS_RETVAL_Tahsilat_Tutari || '');
     const returnedHash = String(data.TURKPOS_RETVAL_Hash || '');
 
-    // Вычисляем локальный хэш
     const localHash = createParamCallbackHash({
       code: String(process.env.PARAM_CLIENT_CODE || ''),
       guid: String(process.env.PARAM_GUID || ''),
@@ -163,101 +198,140 @@ app.all('/param/callback', async (req, res) => {
       islemId
     });
 
-    const hashValid = (returnedHash !== '' && returnedHash === localHash);
+    const hashValid = returnedHash !== '' && returnedHash === localHash;
 
-    // Если хэш не совпал - прерываем операцию (защита от взлома)
     if (!hashValid) {
-      console.error('КРИТИЧЕСКАЯ ОШИБКА: Неверный хэш для заказа ${siparisId}. Попытка подделки!');
+      console.error(КРИТИЧЕСКАЯ ОШИБКА: Неверный хэш для заказа ${siparisId}.);
+
+      lastParamResponse = {
+        stage: 'callback_invalid_hash',
+        data,
+        returnedHash,
+        localHash,
+        time: new Date().toISOString()
+      };
+
       return res.status(400).send('Invalid Security Hash');
     }
 
     const orderMeta = orderStore.get(siparisId) || {};
-    const successUrl = orderMeta.successUrl || '';
-    const failUrl = orderMeta.failUrl || '';
-    const notificationUrl = orderMeta.notificationUrl || '';
+    const successUrl = String(orderMeta.successUrl || '');
+    const failUrl = String(orderMeta.failUrl || '');
+    const notificationUrl = String(orderMeta.notificationUrl || '');
 
-// БЛОК 1: УСПЕШНАЯ ОПЛАТА
-if (sonuc === '1' && Number(dekontId) > 0) {
-  console.log(Заказ ${siparisId} успешно оплачен. Dekont: ${dekontId});
+    lastParamResponse = {
+      stage: 'callback',
+      callback: true,
+      method: req.method,
+      data,
+      hashValid,
+      successUrl,
+      failUrl,
+      notificationUrl,
+      time: new Date().toISOString()
+    };
 
-  const originalAmount = (orderMeta.rawBody && orderMeta.rawBody.Islem_Tutar)
-    ? String(orderMeta.rawBody.Islem_Tutar)
-    : String(tahsilatTutari).replace(',', '.');
+    // УСПЕШНАЯ ОПЛАТА
+    if (sonuc === '1' && Number(dekontId) > 0) {
+      console.log(Заказ ${siparisId} успешно оплачен. Dekont: ${dekontId});
 
-  if (notificationUrl) {
-    try {
-      const notifyPayload = new URLSearchParams({
-        status: 'paid',
-        success: 'true',
-        orderid: siparisId,
-        payment_id: dekontId,
-        amount: originalAmount,
-        paid_amount: String(tahsilatTutari).replace(',', '.'),
-        currency: 'TRY',
-        TURKPOS_RETVAL_Sonuc: '1',
-        TURKPOS_RETVAL_Siparis_ID: siparisId,
-        TURKPOS_RETVAL_Dekont_ID: dekontId,
-        TURKPOS_RETVAL_Islem_ID: islemId,
-        TURKPOS_RETVAL_Tahsilat_Tutari: tahsilatTutari
-      }).toString();
+      const originalAmount =
+        orderMeta.rawBody && orderMeta.rawBody.Islem_Tutar
+          ? String(orderMeta.rawBody.Islem_Tutar)
+          : String(tahsilatTutari).replace(',', '.');
 
-      const webhookRes = await fetch(notificationUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: notifyPayload
-      });
+      // Сообщаем Тильде, что заказ оплачен
+      if (notificationUrl) {
+        try {
+          const notifyPayload = new URLSearchParams({
+            status: 'paid',
+            success: 'true',
+            orderid: siparisId,
+            payment_id: dekontId,
+            amount: originalAmount,
+            paid_amount: String(tahsilatTutari).replace(',', '.'),
+            currency: 'TRY',
+            TURKPOS_RETVAL_Sonuc: '1',
+            TURKPOS_RETVAL_Siparis_ID: siparisId,
+            TURKPOS_RETVAL_Dekont_ID: dekontId,
+            TURKPOS_RETVAL_Islem_ID: islemId,
+            TURKPOS_RETVAL_Tahsilat_Tutari: tahsilatTutari
+          }).toString();
 
-      const webhookText = await webhookRes.text();
+          const webhookRes = await fetch(notificationUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: notifyPayload
+          });
 
-      console.log('TILDA NOTIFY URL:', notificationUrl);
-      console.log('TILDA NOTIFY STATUS:', webhookRes.status);
-      console.log('TILDA NOTIFY RESPONSE:', webhookText);
+          const webhookText = await webhookRes.text();
 
-      lastParamResponse = {
-        ...(lastParamResponse || {}),
-        callback: {
-          siparisId,
-          dekontId,
-          islemId,
-          tahsilatTutari,
-          hashValid
-        },
-        tildaNotify: {
-          url: notificationUrl,
-          status: webhookRes.status,
-          response: webhookText,
-          payload: notifyPayload
+          console.log('TILDA NOTIFY URL:', notificationUrl);
+          console.log('TILDA NOTIFY STATUS:', webhookRes.status);
+          console.log('TILDA NOTIFY RESPONSE:', webhookText);
+
+          lastParamResponse.tildaNotify = {
+            url: notificationUrl,
+            status: webhookRes.status,
+            response: webhookText,
+            payload: notifyPayload
+          };
+        } catch (webhookErr) {
+          console.error('Ошибка отправки сигнала в Тильду:', webhookErr);
+
+          lastParamResponse.tildaNotify = {
+            url: notificationUrl,
+            error: String(webhookErr),
+            time: new Date().toISOString()
+          };
         }
-      };
-    } catch (webhookErr) {
-      console.error('Ошибка отправки сигнала в Тильду:', webhookErr);
+      }
+
+      // Заглушка под Paraşüt
+      if (orderMeta.rawBody) {
+        await createParasutInvoice(orderMeta.rawBody, dekontId);
+      }
+
+      // Перенаправляем клиента на success page
+      if (successUrl) {
+        try {
+          const finalUrl = new URL(successUrl);
+          finalUrl.searchParams.set('TURKPOS_RETVAL_Siparis_ID', siparisId);
+          finalUrl.searchParams.set('TURKPOS_RETVAL_Tahsilat_Tutari', tahsilatTutari);
+          finalUrl.searchParams.set('order_id', siparisId);
+          finalUrl.searchParams.set('amount', tahsilatTutari);
+
+          return res.redirect(finalUrl.toString());
+        } catch (e) {
+          console.error('Некорректный successUrl:', successUrl, e);
+        }
+      }
+
+      return res.send('Оплата прошла успешно!');
     }
-  }
 
-  if (orderMeta.rawBody) {
-    createParasutInvoice(orderMeta.rawBody, dekontId);
-  }
-
-  if (successUrl) {
-    const finalUrl = new URL(successUrl);
-    finalUrl.searchParams.set('TURKPOS_RETVAL_Siparis_ID', siparisId);
-    finalUrl.searchParams.set('TURKPOS_RETVAL_Tahsilat_Tutari', tahsilatTutari);
-    finalUrl.searchParams.set('order_id', siparisId);
-    finalUrl.searchParams.set('amount', tahsilatTutari);
-    return res.redirect(finalUrl.toString());
-  }
-
-  return res.send('Оплата прошла успешно!');
-}
-    
-    // БЛОК 2: ОШИБКА ОПЛАТЫ
+    // НЕУСПЕШНАЯ ОПЛАТА
     if (failUrl) {
-      return res.redirect(failUrl);
+      try {
+        return res.redirect(failUrl);
+      } catch (e) {
+        console.error('Некорректный failUrl:', failUrl, e);
+      }
     }
-    return res.status(400).send('Оплата не прошла.');
 
+    return res.status(400).send('Оплата не прошла.');
   } catch (err) {
     console.error('CALLBACK ERROR:', err);
+
+    lastParamResponse = {
+      stage: 'callback_error',
+      error: String(err),
+      stack: String(err.stack || ''),
+      time: new Date().toISOString()
+    };
+
     return res.status(500).send('Callback Error');
   }
 });
@@ -270,8 +344,11 @@ async function createParasutInvoice(tildaData, dekontId) {
     const address = tildaData.adres || 'Adres belirtilmedi';
     const amount = tildaData.Islem_Tutar || '0';
 
-    console.log(--- ДАННЫЕ PARAŞÜT ---);
+    console.log('--- ДАННЫЕ PARAŞÜT ---');
     console.log(Покупатель: ${name} (${buyerType}). Сумма: ${amount} TRY.);
+    console.log(İl: ${il});
+    console.log(Adres: ${address});
+    console.log(Dekont ID: ${dekontId});
   } catch (error) {
     console.error('Ошибка Paraşüt:', error);
   }
@@ -281,9 +358,8 @@ app.listen(PORT, () => {
   console.log('Server started on port ' + PORT);
 });
 
-// ФУНКЦИЯ ПРОВЕРКИ ПОДПИСИ (БЕЗОПАСНОСТЬ)
 function createParamCallbackHash({ code, guid, dekontId, tahsilatTutari, siparisId, islemId }) {
-  const raw = '${code}${guid}${dekontId}${tahsilatTutari}${siparisId}${islemId}';
+  const raw = ${code}${guid}${dekontId}${tahsilatTutari}${siparisId}${islemId};
   const sha1 = crypto.createHash('sha1').update(raw, 'utf8').digest();
   return sha1.toString('base64');
 }
