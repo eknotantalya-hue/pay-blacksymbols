@@ -53,7 +53,7 @@ app.all('/param/init', async (req, res) => {
         : 'https://test-dmz.param.com.tr/api/parampos/modalpayment';
 
     const orderId = String(body.Siparis_ID || 'NO_ORDER');
-    const transactionId = ${orderId}-${Date.now()};
+    const transactionId = '${orderId}-${Date.now()}';
 
     const amount = toParamAmount(body.Islem_Tutar || '0');
     const phone = normalizePhone(body.KK_Sahibi_GSM || body.phone || '');
