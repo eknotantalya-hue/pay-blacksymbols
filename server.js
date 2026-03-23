@@ -50,13 +50,13 @@ app.all('/param/init', async (req, res) => {
 
     const orderId = String(body.Siparis_ID || 'NO_ORDER');
     // Уникальный ID транзакции (решает проблему дублей)
-    const transactionId = ${orderId}-${Date.now()};
+    const transactionId = '${orderId}-${Date.now()}';
 
     const amount = toParamAmount(body.Islem_Tutar || '0');
     const phone = normalizePhone(body.KK_Sahibi_GSM || body.phone || '');
     
     // URL для возврата от банка на наш сервер
-    const callbackUrl = ${String(process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '')}/param/callback;
+    const callbackUrl = '${String(process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '')}/param/callback';
 
     // Ссылки, которые присылает Тильда
     const successUrl = String(body.Basarili_URL || '');
@@ -86,7 +86,7 @@ app.all('/param/init', async (req, res) => {
       MaxInstallment: 1
     };
 
-    console.log(Инициализация платежа для заказа: ${orderId});
+    console.log('Инициализация платежа для заказа: ${orderId}');
 
     const response = await fetch(endpoint, {
       method: 'POST',
@@ -167,7 +167,7 @@ app.all('/param/callback', async (req, res) => {
 
     // Если хэш не совпал - прерываем операцию (защита от взлома)
     if (!hashValid) {
-      console.error(КРИТИЧЕСКАЯ ОШИБКА: Неверный хэш для заказа ${siparisId}. Попытка подделки!);
+      console.error('КРИТИЧЕСКАЯ ОШИБКА: Неверный хэш для заказа ${siparisId}. Попытка подделки!');
       return res.status(400).send('Invalid Security Hash');
     }
 
@@ -177,51 +177,78 @@ app.all('/param/callback', async (req, res) => {
     const notificationUrl = orderMeta.notificationUrl || '';
 
 // БЛОК 1: УСПЕШНАЯ ОПЛАТА
-    if (sonuc === '1' && Number(dekontId) > 0) {
-      console.log(Заказ ${siparisId} успешно оплачен. Dekont: ${dekontId});
+if (sonuc === '1' && Number(dekontId) > 0) {
+  console.log(Заказ ${siparisId} успешно оплачен. Dekont: ${dekontId});
 
-      // Берем оригинальную сумму Тильды из памяти, чтобы пройти её строгую проверку
-      const originalAmount = (orderMeta.rawBody && orderMeta.rawBody.Islem_Tutar) 
-                             ? orderMeta.rawBody.Islem_Tutar 
-                             : tahsilatTutari.replace(',', '.');
+  const originalAmount = (orderMeta.rawBody && orderMeta.rawBody.Islem_Tutar)
+    ? String(orderMeta.rawBody.Islem_Tutar)
+    : String(tahsilatTutari).replace(',', '.');
 
-      // 1. Отправляем скрытый сигнал в Тильду
-      if (notificationUrl) {
-        try {
-          const webhookParams = new URLSearchParams({
-            TURKPOS_RETVAL_Sonuc: '1',
-            Siparis_ID: siparisId,
-            Islem_Tutar: originalAmount, // Отправляем сумму в формате Тильды!
-            TURKPOS_RETVAL_Dekont_ID: dekontId
-          }).toString();
+  if (notificationUrl) {
+    try {
+      const notifyPayload = new URLSearchParams({
+        status: 'paid',
+        success: 'true',
+        orderid: siparisId,
+        payment_id: dekontId,
+        amount: originalAmount,
+        paid_amount: String(tahsilatTutari).replace(',', '.'),
+        currency: 'TRY',
+        TURKPOS_RETVAL_Sonuc: '1',
+        TURKPOS_RETVAL_Siparis_ID: siparisId,
+        TURKPOS_RETVAL_Dekont_ID: dekontId,
+        TURKPOS_RETVAL_Islem_ID: islemId,
+        TURKPOS_RETVAL_Tahsilat_Tutari: tahsilatTutari
+      }).toString();
 
-          const webhookRes = await fetch(notificationUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: webhookParams
-          });
-          
-          console.log(Статус ответа Тильды: ${webhookRes.status});
-          console.log(Текст ответа Тильды: ${await webhookRes.text()});
-        } catch (webhookErr) {
-          console.error('Ошибка отправки сигнала в Тильду:', webhookErr);
+      const webhookRes = await fetch(notificationUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: notifyPayload
+      });
+
+      const webhookText = await webhookRes.text();
+
+      console.log('TILDA NOTIFY URL:', notificationUrl);
+      console.log('TILDA NOTIFY STATUS:', webhookRes.status);
+      console.log('TILDA NOTIFY RESPONSE:', webhookText);
+
+      lastParamResponse = {
+        ...(lastParamResponse || {}),
+        callback: {
+          siparisId,
+          dekontId,
+          islemId,
+          tahsilatTutari,
+          hashValid
+        },
+        tildaNotify: {
+          url: notificationUrl,
+          status: webhookRes.status,
+          response: webhookText,
+          payload: notifyPayload
         }
-      }
-
-      // 2. Запускаем создание фатуры в Paraşüt
-      if (orderMeta.rawBody) {
-        createParasutInvoice(orderMeta.rawBody, dekontId);
-      }
-
-      // 3. Перенаправляем клиента на страницу успеха
-      if (successUrl) {
-        const finalUrl = new URL(successUrl);
-        finalUrl.searchParams.append('TURKPOS_RETVAL_Siparis_ID', siparisId);
-        finalUrl.searchParams.append('TURKPOS_RETVAL_Tahsilat_Tutari', tahsilatTutari);
-        return res.redirect(finalUrl.toString());
-      }
-      return res.send('Оплата прошла успешно!');
+      };
+    } catch (webhookErr) {
+      console.error('Ошибка отправки сигнала в Тильду:', webhookErr);
     }
+  }
+
+  if (orderMeta.rawBody) {
+    createParasutInvoice(orderMeta.rawBody, dekontId);
+  }
+
+  if (successUrl) {
+    const finalUrl = new URL(successUrl);
+    finalUrl.searchParams.set('TURKPOS_RETVAL_Siparis_ID', siparisId);
+    finalUrl.searchParams.set('TURKPOS_RETVAL_Tahsilat_Tutari', tahsilatTutari);
+    finalUrl.searchParams.set('order_id', siparisId);
+    finalUrl.searchParams.set('amount', tahsilatTutari);
+    return res.redirect(finalUrl.toString());
+  }
+
+  return res.send('Оплата прошла успешно!');
+}
     
     // БЛОК 2: ОШИБКА ОПЛАТЫ
     if (failUrl) {
@@ -256,7 +283,7 @@ app.listen(PORT, () => {
 
 // ФУНКЦИЯ ПРОВЕРКИ ПОДПИСИ (БЕЗОПАСНОСТЬ)
 function createParamCallbackHash({ code, guid, dekontId, tahsilatTutari, siparisId, islemId }) {
-  const raw = ${code}${guid}${dekontId}${tahsilatTutari}${siparisId}${islemId};
+  const raw = '${code}${guid}${dekontId}${tahsilatTutari}${siparisId}${islemId}';
   const sha1 = crypto.createHash('sha1').update(raw, 'utf8').digest();
   return sha1.toString('base64');
 }
