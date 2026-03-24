@@ -7,12 +7,8 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(express.urlencoded({
-  extended: true,
-  verify: (req, res, buf) => {
-    req.rawBody = buf.toString('utf8');
-  }
-}));
+// Чистые настройки (без лишнего сохранения rawBody)
+app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
 let lastRequest = null;
@@ -71,15 +67,14 @@ app.all('/param/init', async (req, res) => {
     const failUrl = String(body.Basarisiz_URL || '');
     const notificationUrl = String(body.Notification_URL || '');
 
-    // Сохраняем заказ до callback
-  orderStore.set(orderId, {
-  successUrl,
-  failUrl,
-  notificationUrl,
-  rawBody: body,
-  rawPostBody: req.rawBody || '',
-  createdAt: new Date().toISOString()
-});
+    // Сохраняем заказ до callback в очищенном виде
+    orderStore.set(orderId, {
+      successUrl,
+      failUrl,
+      notificationUrl,
+      rawBody: body,
+      createdAt: new Date().toISOString()
+    });
 
     const payload = {
       Code: Number(process.env.PARAM_CLIENT_CODE || 0),
@@ -157,14 +152,12 @@ app.all('/param/init', async (req, res) => {
     `);
   } catch (err) {
     console.error('INIT ERROR:', err);
-
     lastParamResponse = {
       stage: 'init_error',
       error: String(err),
       stack: String(err.stack || ''),
       time: new Date().toISOString()
     };
-
     return res.status(500).send(`
       <html>
         <head>
@@ -208,7 +201,6 @@ app.all('/param/callback', async (req, res) => {
 
     if (!hashValid) {
       console.error(`КРИТИЧЕСКАЯ ОШИБКА: Неверный хэш для заказа ${siparisId}.`);
-
       lastParamResponse = {
         stage: 'callback_invalid_hash',
         data,
@@ -216,7 +208,6 @@ app.all('/param/callback', async (req, res) => {
         localHash,
         time: new Date().toISOString()
       };
-
       return res.status(400).send('Invalid Security Hash');
     }
 
@@ -246,44 +237,45 @@ app.all('/param/callback', async (req, res) => {
           ? String(orderMeta.rawBody.Islem_Tutar)
           : String(tahsilatTutari).replace(',', '.');
 
-     // Сообщаем Тильде, что заказ оплачен
-if (notificationUrl) {
-  try {
-    const notifyPayload = new URLSearchParams({
-      TURKPOS_RETVAL_Sonuc: '1',
-      Siparis_ID: siparisId,
-      Islem_Tutar: originalAmount,
-      TURKPOS_RETVAL_Dekont_ID: dekontId
-    });
+      // Сообщаем Тильде, что заказ оплачен (Снайперский выстрел)
+      if (notificationUrl) {
+        try {
+          const notifyPayload = new URLSearchParams({
+            TURKPOS_RETVAL_Sonuc: '1',
+            Siparis_ID: siparisId,
+            Islem_Tutar: originalAmount,
+            TURKPOS_RETVAL_Dekont_ID: dekontId
+          });
 
-    const webhookRes = await fetch(notificationUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded'
-      },
-      body: notifyPayload.toString()
-    });
-    const webhookText = await webhookRes.text();
+          const webhookRes = await fetch(notificationUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: notifyPayload.toString()
+          });
+          const webhookText = await webhookRes.text();
 
-    console.log('TILDA NOTIFY URL:', notificationUrl);
-    console.log('TILDA NOTIFY STATUS:', webhookRes.status);
-    console.log('TILDA NOTIFY RESPONSE:', webhookText);
+          console.log('TILDA NOTIFY URL:', notificationUrl);
+          console.log('TILDA NOTIFY STATUS:', webhookRes.status);
+          console.log('TILDA NOTIFY RESPONSE:', webhookText);
 
-    lastParamResponse.tildaNotify = {
-      url: notificationUrl,
-      status: webhookRes.status,
-      response: webhookText,
-      payload: notifyPayload.toString()
-    };
-  } catch (webhookErr) {
-    console.error('Ошибка отправки сигнала в Тильду:', webhookErr);
-    lastParamResponse.tildaNotify = {
-      url: notificationUrl,
-      error: String(webhookErr),
-      time: new Date().toISOString()
-    };
-  }
-}
+          lastParamResponse.tildaNotify = {
+            url: notificationUrl,
+            status: webhookRes.status,
+            response: webhookText,
+            payload: notifyPayload.toString()
+          };
+        } catch (webhookErr) {
+          console.error('Ошибка отправки сигнала в Тильду:', webhookErr);
+          lastParamResponse.tildaNotify = {
+            url: notificationUrl,
+            error: String(webhookErr),
+            time: new Date().toISOString()
+          };
+        }
+      }
+
       // Заглушка под Paraşüt
       if (orderMeta.rawBody) {
         await createParasutInvoice(orderMeta.rawBody, dekontId);
@@ -319,14 +311,12 @@ if (notificationUrl) {
     return res.status(400).send('Оплата не прошла.');
   } catch (err) {
     console.error('CALLBACK ERROR:', err);
-
     lastParamResponse = {
       stage: 'callback_error',
       error: String(err),
       stack: String(err.stack || ''),
       time: new Date().toISOString()
     };
-
     return res.status(500).send('Callback Error');
   }
 });
