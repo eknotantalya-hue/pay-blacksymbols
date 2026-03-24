@@ -243,12 +243,14 @@ app.all('/param/callback', async (req, res) => {
       // Сообщаем Тильде, что заказ оплачен
     if (notificationUrl) {
   try {
-    const notifyPayload = new URLSearchParams({
-      TURKPOS_RETVAL_Sonuc: '1',     // ВАЖНО: Тильда ждет именно это!
-      Siparis_ID: siparisId,
-      Islem_Tutar: originalAmount,
-      TURKPOS_RETVAL_Dekont_ID: dekontId
-    });
+ const notifyPayload = new URLSearchParams({
+  TURKPOS_RETVAL_Sonuc: '1',
+  Siparis_ID: siparisId,
+  Islem_Tutar: originalAmount,
+  TURKPOS_RETVAL_Dekont_ID: dekontId,
+  Islem_Hash: String(orderMeta.rawBody?.Islem_Hash || ''),
+  Odeme_Durumu: 'Success'
+});
       const webhookRes = await fetch(notificationUrl, {
       method: 'POST',
       headers: {
