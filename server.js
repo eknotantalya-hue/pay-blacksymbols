@@ -241,22 +241,15 @@ app.all('/param/callback', async (req, res) => {
           : String(tahsilatTutari).replace(',', '.');
 
       // Сообщаем Тильде, что заказ оплачен
-   if (notificationUrl) {
+  if (notificationUrl) {
   try {
     const notifyPayload = new URLSearchParams();
 
-    // 1. Сначала возвращаем в Tilda ВСЕ исходные поля как есть
     Object.entries(orderMeta.rawBody || {}).forEach(([key, value]) => {
       if (value !== undefined && value !== null) {
         notifyPayload.append(key, String(value));
       }
     });
-
-    // 2. Потом добавляем результат успешной оплаты от Param
-    notifyPayload.set('TURKPOS_RETVAL_Sonuc', '1');
-    notifyPayload.set('TURKPOS_RETVAL_Dekont_ID', dekontId);
-    notifyPayload.set('TURKPOS_RETVAL_Tahsilat_Tutari', tahsilatTutari);
-    notifyPayload.set('Odeme_Durumu', 'Success');
 
     const webhookRes = await fetch(notificationUrl, {
       method: 'POST',
