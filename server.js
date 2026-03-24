@@ -241,54 +241,46 @@ app.all('/param/callback', async (req, res) => {
           : String(tahsilatTutari).replace(',', '.');
 
       // Сообщаем Тильде, что заказ оплачен
-      if (notificationUrl) {
-        try {
-          const notifyPayload = new URLSearchParams({
-            status: 'paid',
-            success: 'true',
-            orderid: siparisId,
-            payment_id: dekontId,
-            amount: originalAmount,
-            paid_amount: String(tahsilatTutari).replace(',', '.'),
-            currency: 'TRY',
-            TURKPOS_RETVAL_Sonuc: '1',
-            TURKPOS_RETVAL_Siparis_ID: siparisId,
-            TURKPOS_RETVAL_Dekont_ID: dekontId,
-            TURKPOS_RETVAL_Islem_ID: islemId,
-            TURKPOS_RETVAL_Tahsilat_Tutari: tahsilatTutari
-          }).toString();
+    if (notificationUrl) {
+  try {
+    const notifyPayload = new URLSearchParams({
+      Siparis_ID: siparisId,
+      Islem_Tutar: originalAmount,
+      Odeme_Durumu: 'Success',
+      Dekont_ID: dekontId,
+      payment: '1'
+    });
 
-          const webhookRes = await fetch(notificationUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/x-www-form-urlencoded'
-            },
-            body: notifyPayload
-          });
+    const webhookRes = await fetch(notificationUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: notifyPayload.toString()
+    });
 
-          const webhookText = await webhookRes.text();
+    const webhookText = await webhookRes.text();
 
-          console.log('TILDA NOTIFY URL:', notificationUrl);
-          console.log('TILDA NOTIFY STATUS:', webhookRes.status);
-          console.log('TILDA NOTIFY RESPONSE:', webhookText);
+    console.log('TILDA NOTIFY URL:', notificationUrl);
+    console.log('TILDA NOTIFY STATUS:', webhookRes.status);
+    console.log('TILDA NOTIFY RESPONSE:', webhookText);
 
-          lastParamResponse.tildaNotify = {
-            url: notificationUrl,
-            status: webhookRes.status,
-            response: webhookText,
-            payload: notifyPayload
-          };
-        } catch (webhookErr) {
-          console.error('Ошибка отправки сигнала в Тильду:', webhookErr);
+    lastParamResponse.tildaNotify = {
+      url: notificationUrl,
+      status: webhookRes.status,
+      response: webhookText,
+      payload: notifyPayload.toString()
+    };
+  } catch (webhookErr) {
+    console.error('Ошибка отправки сигнала в Тильду:', webhookErr);
 
-          lastParamResponse.tildaNotify = {
-            url: notificationUrl,
-            error: String(webhookErr),
-            time: new Date().toISOString()
-          };
-        }
-      }
-
+    lastParamResponse.tildaNotify = {
+      url: notificationUrl,
+      error: String(webhookErr),
+      time: new Date().toISOString()
+    };
+  }
+}
       // Заглушка под Paraşüt
       if (orderMeta.rawBody) {
         await createParasutInvoice(orderMeta.rawBody, dekontId);
