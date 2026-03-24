@@ -244,8 +244,8 @@ app.all('/param/callback', async (req, res) => {
             TURKPOS_RETVAL_Sonuc: '1',
             Siparis_ID: siparisId,
             Islem_Tutar: originalAmount,
-            TURKPOS_RETVAL_Dekont_ID: dekontId
-                  Islem_Hash: 'bypass'  // <- Бросаем Тильде фальшивую подпись!
+            TURKPOS_RETVAL_Dekont_ID: dekontId,
+            Islem_Hash: 'bypass'  // <- Бросаем Тильде фальшивую подпись!
           });
 
           const webhookRes = await fetch(notificationUrl, {
