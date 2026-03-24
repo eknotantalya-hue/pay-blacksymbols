@@ -240,14 +240,31 @@ app.all('/param/callback', async (req, res) => {
       // Сообщаем Тильде, что заказ оплачен (Снайперский выстрел)
       if (notificationUrl) {
         try {
-          const notifyPayload = new URLSearchParams({
+         // 1. Собираем данные в объект
+          const notifyObj = {
             TURKPOS_RETVAL_Sonuc: '1',
             Siparis_ID: siparisId,
             Islem_Tutar: originalAmount,
-            TURKPOS_RETVAL_Dekont_ID: dekontId,
-            Islem_Hash: 'bypass'  // <- Бросаем Тильде фальшивую подпись!
-          });
+            TURKPOS_RETVAL_Dekont_ID: dekontId
+          };
 
+          // 2. Сортируем ключи строго по алфавиту (как требует Тильда)
+          const sortedKeys = Object.keys(notifyObj).sort();
+
+          // 3. Склеиваем все значения в одну сплошную строку
+          let stringToHash = '';
+          for (const key of sortedKeys) {
+            stringToHash += notifyObj[key];
+          }
+
+          // 4. Генерируем настоящую подпись SHA-1 в формате Base64
+          const tildaHash = crypto.createHash('sha1').update(stringToHash, 'utf8').digest('base64');
+
+          // 5. Добавляем идеальную подпись в пакет
+          notifyObj.Islem_Hash = tildaHash;
+
+          const notifyPayload = new URLSearchParams(notifyObj);
+          
           const webhookRes = await fetch(notificationUrl, {
             method: 'POST',
             headers: {
