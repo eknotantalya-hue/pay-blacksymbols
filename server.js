@@ -260,8 +260,8 @@ app.all('/param/callback', async (req, res) => {
           // 4. Генерируем настоящую подпись SHA-1 в формате Base64
           const tildaHash = crypto.createHash('sha1').update(stringToHash, 'utf8').digest('base64');
 
-          // 5. Добавляем идеальную подпись в пакет
-          notifyObj.Islem_Hash = tildaHash;
+          // 5. Отправляем под именем signature, как теперь ждет Тильда!
+          notifyObj.signature = tildaHash;
 
           const notifyPayload = new URLSearchParams(notifyObj);
           
