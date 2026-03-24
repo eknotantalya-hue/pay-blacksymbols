@@ -246,19 +246,23 @@ app.all('/param/callback', async (req, res) => {
           ? String(orderMeta.rawBody.Islem_Tutar)
           : String(tahsilatTutari).replace(',', '.');
 
-      // Сообщаем Тильде, что заказ оплачен
+     // Сообщаем Тильде, что заказ оплачен
 if (notificationUrl) {
   try {
-    const rawPostBody = String(orderMeta.rawPostBody || '');
+    const notifyPayload = new URLSearchParams({
+      TURKPOS_RETVAL_Sonuc: '1',
+      Siparis_ID: siparisId,
+      Islem_Tutar: originalAmount,
+      TURKPOS_RETVAL_Dekont_ID: dekontId
+    });
 
     const webhookRes = await fetch(notificationUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded'
       },
-      body: rawPostBody
+      body: notifyPayload.toString()
     });
-
     const webhookText = await webhookRes.text();
 
     console.log('TILDA NOTIFY URL:', notificationUrl);
@@ -269,11 +273,10 @@ if (notificationUrl) {
       url: notificationUrl,
       status: webhookRes.status,
       response: webhookText,
-      payload: rawPostBody
+      payload: notifyPayload.toString()
     };
   } catch (webhookErr) {
     console.error('Ошибка отправки сигнала в Тильду:', webhookErr);
-
     lastParamResponse.tildaNotify = {
       url: notificationUrl,
       error: String(webhookErr),
