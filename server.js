@@ -244,14 +244,12 @@ app.all('/param/callback', async (req, res) => {
     if (notificationUrl) {
   try {
     const notifyPayload = new URLSearchParams({
+      TURKPOS_RETVAL_Sonuc: '1',     // ВАЖНО: Тильда ждет именно это!
       Siparis_ID: siparisId,
       Islem_Tutar: originalAmount,
-      Odeme_Durumu: 'Success',
-      Dekont_ID: dekontId,
-      payment: '1'
+      TURKPOS_RETVAL_Dekont_ID: dekontId
     });
-
-    const webhookRes = await fetch(notificationUrl, {
+      const webhookRes = await fetch(notificationUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded'
