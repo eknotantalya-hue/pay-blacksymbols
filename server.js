@@ -257,8 +257,9 @@ app.all('/param/callback', async (req, res) => {
             stringToHash += notifyObj[key];
           }
 
-          // 4. Генерируем настоящую подпись SHA-1 в формате Base64
-          const tildaHash = crypto.createHash('sha1').update(stringToHash, 'utf8').digest('base64');
+   // 4. Раскусили Тильду: сначала делаем HEX-текст, а уже его кодируем в Base64
+const hexHash = crypto.createHash('sha1').update(stringToHash, 'utf8').digest('hex');
+const tildaHash = Buffer.from(hexHash).toString('base64');
 
           // 5. Отправляем под именем signature, как теперь ждет Тильда!
           notifyObj.signature = tildaHash;
