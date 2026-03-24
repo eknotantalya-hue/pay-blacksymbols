@@ -90,7 +90,7 @@ app.all('/param/init', async (req, res) => {
       Customer_Name: customerName
     };
 
-    console.log(Инициализация платежа для заказа: `${orderId}`);
+    console.log(`Инициализация платежа для заказа: ${orderId}`);
     console.log('PARAM INIT PAYLOAD:', JSON.stringify(payload, null, 2));
 
     const response = await fetch(endpoint, {
@@ -138,13 +138,13 @@ app.all('/param/init', async (req, res) => {
         </head>
         <body style="font-family:Arial;padding:24px;background:#111;color:#fff;">
           <h1 style="color:#ffcc00;">PARAM ERROR</h1>
-          <p><b>Endpoint:</b> `${escapeHtml(endpoint)}`</p>
-          <p><b>HTTP Status:</b> `${escapeHtml(String(response.status))}`</p>
-          <p><b>ResultCode:</b> `${escapeHtml(String(resultCode))}`</p>
-          <p><b>ResultDescription:</b> `${escapeHtml(String(resultDescription))}`</p>
-          <p><b>Payment URL:</b> `${escapeHtml(String(paymentUrl))}`</p>
+          <p><b>Endpoint:</b> ${escapeHtml(endpoint)}</p>
+          <p><b>HTTP Status:</b> ${escapeHtml(String(response.status))}</p>
+          <p><b>ResultCode:</b> ${escapeHtml(String(resultCode))}</p>
+          <p><b>ResultDescription:</b> ${escapeHtml(String(resultDescription))}</p>
+          <p><b>Payment URL:</b> ${escapeHtml(String(paymentUrl))}</p>
           <h3>Raw Response</h3>
-          <pre style="white-space:pre-wrap;background:#000;padding:16px;border-radius:8px;">`${escapeHtml(responseText)}`</pre>
+          <pre style="white-space:pre-wrap;background:#000;padding:16px;border-radius:8px;">${escapeHtml(responseText)}</pre>
           <p><a style="color:#ffcc00;" href="/debug/last" target="_blank">Open /debug/last</a></p>
         </body>
       </html>
@@ -167,7 +167,7 @@ app.all('/param/init', async (req, res) => {
         </head>
         <body style="font-family:Arial;padding:24px;background:#111;color:#fff;">
           <h1 style="color:#ffcc00;">SERVER ERROR</h1>
-          <pre style="white-space:pre-wrap;background:#000;padding:16px;border-radius:8px;">`${escapeHtml(String(err.stack || err))}`</pre>
+          <pre style="white-space:pre-wrap;background:#000;padding:16px;border-radius:8px;">${escapeHtml(String(err.stack || err))}</pre>
           <p><a style="color:#ffcc00;" href="/debug/last" target="_blank">Open /debug/last</a></p>
         </body>
       </html>
