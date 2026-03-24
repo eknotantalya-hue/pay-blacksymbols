@@ -7,7 +7,12 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({
+  extended: true,
+  verify: (req, res, buf) => {
+    req.rawBody = buf.toString('utf8');
+  }
+}));
 app.use(express.json());
 
 let lastRequest = null;
@@ -67,13 +72,14 @@ app.all('/param/init', async (req, res) => {
     const notificationUrl = String(body.Notification_URL || '');
 
     // Сохраняем заказ до callback
-    orderStore.set(orderId, {
-      successUrl,
-      failUrl,
-      notificationUrl,
-      rawBody: body,
-      createdAt: new Date().toISOString()
-    });
+  orderStore.set(orderId, {
+  successUrl,
+  failUrl,
+  notificationUrl,
+  rawBody: body,
+  rawPostBody: req.rawBody || '',
+  createdAt: new Date().toISOString()
+});
 
     const payload = {
       Code: Number(process.env.PARAM_CLIENT_CODE || 0),
@@ -241,22 +247,16 @@ app.all('/param/callback', async (req, res) => {
           : String(tahsilatTutari).replace(',', '.');
 
       // Сообщаем Тильде, что заказ оплачен
-  if (notificationUrl) {
+if (notificationUrl) {
   try {
-    const notifyPayload = new URLSearchParams();
-
-    Object.entries(orderMeta.rawBody || {}).forEach(([key, value]) => {
-      if (value !== undefined && value !== null) {
-        notifyPayload.append(key, String(value));
-      }
-    });
+    const rawPostBody = String(orderMeta.rawPostBody || '');
 
     const webhookRes = await fetch(notificationUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded'
       },
-      body: notifyPayload.toString()
+      body: rawPostBody
     });
 
     const webhookText = await webhookRes.text();
@@ -269,7 +269,7 @@ app.all('/param/callback', async (req, res) => {
       url: notificationUrl,
       status: webhookRes.status,
       response: webhookText,
-      payload: notifyPayload.toString()
+      payload: rawPostBody
     };
   } catch (webhookErr) {
     console.error('Ошибка отправки сигнала в Тильду:', webhookErr);
