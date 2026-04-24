@@ -318,7 +318,6 @@ const tildaHash = Buffer.from(hexHash).toString('base64');
           console.error('Некорректный successUrl:', successUrl, e);
         }
       }
-
       return res.send('Оплата прошла успешно!');
     }
 
