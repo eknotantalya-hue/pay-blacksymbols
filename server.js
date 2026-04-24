@@ -30,6 +30,10 @@ app.get('/health', (req, res) => {
 });
 
 app.get('/debug/last', (req, res) => {
+  const token = req.query.token || '';
+  if (!process.env.DEBUG_TOKEN || token !== process.env.DEBUG_TOKEN) {
+    return res.status(403).json({ ok: false, error: 'Forbidden' });
+  }
   res.status(200).json({
     ok: true,
     lastRequest,
