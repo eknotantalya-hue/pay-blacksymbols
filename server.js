@@ -241,7 +241,7 @@ app.all('/param/callback', async (req, res) => {
           ? String(orderMeta.rawBody.Islem_Tutar)
           : String(tahsilatTutari).replace(',', '.');
 
-      // Сообщаем Тильде, что заказ оплачен (Снайперский выстрел)
+      // Сообщаем Тильде, что заказ оплачен
       if (notificationUrl) {
         try {
          // 1. Собираем данные в объект
@@ -252,7 +252,7 @@ app.all('/param/callback', async (req, res) => {
             TURKPOS_RETVAL_Dekont_ID: dekontId
           };
 
-          // 2. Сортируем ключи строго по алфавиту (как требует Тильда)
+          // 2. Сортируем ключи строго по алфавиту
           const sortedKeys = Object.keys(notifyObj).sort();
 
           // 3. Склеиваем все значения в одну сплошную строку
@@ -261,11 +261,11 @@ app.all('/param/callback', async (req, res) => {
             stringToHash += notifyObj[key];
           }
 
-   // 4. Раскусили Тильду: сначала делаем HEX-текст, а уже его кодируем в Base64
+   // 4. сначала делаем HEX-текст, а уже его кодируем в Base64
 const hexHash = crypto.createHash('sha1').update(stringToHash, 'utf8').digest('hex');
 const tildaHash = Buffer.from(hexHash).toString('base64');
 
-          // 5. Отправляем под именем signature, как теперь ждет Тильда!
+          // 5. Отправляем под именем signature
           notifyObj.signature = tildaHash;
 
           const notifyPayload = new URLSearchParams(notifyObj);
